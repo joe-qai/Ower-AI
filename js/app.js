@@ -62,8 +62,6 @@ const CONFIG = {
 
 let messages = [];
 
-
-
 const MarkdownParser = {
   parse: function(text) {
     if (!text) return '';
@@ -198,38 +196,29 @@ async function callApi(modelType, prompt, options = {}) {
   }
 }
 
-const ROUTER_SYSTEM_PROMPT = `你是一个智能决策引擎，遵循"感知→思考→决策→行动"的ReAct模式。
+const ROUTER_SYSTEM_PROMPT = `你是 Ower AI，一个智能AI助手，支持文本对话、图片生成和视频生成。
 
-## 感知
-分析用户消息的意图。
-
-## 思考
-- 普通对话、提问、闲聊、解释、建议 → intent: text，直接在prompt中回答用户
-- 要求生成/画/创建图片、图、图像，且用户要的是实际图片 → intent: image，prompt为优化后的英文图片提示词
-- **如果用户要你写/生成提示词(prompt)，而不是实际图片/视频 → intent: text，回答格式：先给出中文提示词，再空一行给出英文版English Prompt**
-- 要求生成/制作视频 → intent: video，prompt为优化后的英文视频提示词
-- 问你是谁/能力 → intent: text，在prompt中回答
-- **用户消息模糊、不知所云、无明确意图 → intent: text，prompt回复"请认真提问，您的这个问题我不知道呢？"**
-
-## 决策
-用户消息: __USER_MESSAGE__
-
-## 行动
-只返回纯JSON，不要markdown代码块：
-{"intent":"text|image|video","prompt":"..."}`;
+工作规则：
+- 普通聊天、问答、写作等 → 直接用自然语言回复用户，保持友好有温度
+- 用户要求写提示词(prompt) → 正常回复，先写中文提示词，空行后写英文版
+- 用户要求生成/画图片 → 在回复开头加上【IMAGE】标记，后面跟上英文图片提示词
+- 用户要求生成视频 → 在回复开头加上【VIDEO】标记，后面跟上英文视频提示词
+- 如果不确定用户意图，正常对话即可，不要拒绝回答`;
 
 async function routeIntent(userMessage) {
-  const systemPrompt = ROUTER_SYSTEM_PROMPT.replace('__USER_MESSAGE__', userMessage);
   const raw = await callApi('text', userMessage, {
-    systemPrompt: systemPrompt,
-    temperature: 0.1,
-    maxTokens: 512
+    systemPrompt: ROUTER_SYSTEM_PROMPT,
+    temperature: 0.7,
+    maxTokens: 1024
   });
   const content = parseResponse('text', raw);
-  try {
-    return JSON.parse(content);
-  } catch {
-    return null;
+  
+  if (content.startsWith('【IMAGE】')) {
+    return { intent: 'image', prompt: content.replace('【IMAGE】', '').trim() };
+  } else if (content.startsWith('【VIDEO】')) {
+    return { intent: 'video', prompt: content.replace('【VIDEO】', '').trim() };
+  } else {
+    return { intent: 'text', response: content };
   }
 }
 
@@ -359,16 +348,17 @@ async function sendMessage() {
 
     if (!decision || !decision.intent) {
       removeLoadingIndicator();
-      addTextMessage('我是 Ower AI，智能模型聊天平台，可以放心用哟。');
+      addMessage('bot', '抱歉，我没有理解您的意思，请再描述一下？');
       sendBtn.disabled = false;
       scrollToBottom();
       return;
     }
 
-    const { intent, prompt } = decision;
+    const { intent } = decision;
 
     if (intent === 'image' || intent === 'video') {
-      const response = await callApi(intent, prompt || message);
+      const prompt = decision.prompt || message;
+      const response = await callApi(intent, prompt);
       const result = parseResponse(intent, response);
 
       removeLoadingIndicator();
@@ -381,7 +371,7 @@ async function sendMessage() {
       }
     } else {
       removeLoadingIndicator();
-      addTextMessage(prompt || '...');
+      addTextMessage(decision.response || '...');
     }
   } catch (error) {
     removeLoadingIndicator();
