@@ -1,0 +1,14 @@
+{
+  "name": "ower_mutilagent",
+  "version": "1.0.0",
+  "description": "智能多模态对话平台",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^3.1.1",
+    "jsdom": "^26.0.0"
+  }
+}

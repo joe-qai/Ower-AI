@@ -417,14 +417,21 @@ function setupEventListeners() {
   const sendBtn = document.getElementById('sendBtn');
   const clearBtn = document.getElementById('clearBtn');
 
-  userInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      sendMessage();
-    }
-  });
+  if (userInput) {
+    userInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendMessage();
+      }
+    });
+  }
 
-  sendBtn.addEventListener('click', sendMessage);
-  clearBtn.addEventListener('click', clearMessages);
+  if (sendBtn) {
+    sendBtn.addEventListener('click', sendMessage);
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', clearMessages);
+  }
 }
 
 async function sendMessage() {
@@ -434,11 +441,13 @@ async function sendMessage() {
 
   if (!message) return;
 
+  const attachments = window.__attachments?.getAll() || [];
   const modelType = detectModelType(message);
 
-  addMessage('user', message);
+  addMessage('user', message, attachments);
   userInput.value = '';
   sendBtn.disabled = true;
+  window.__attachments?.clear();
 
   try {
     if (modelType === 'system') {
@@ -458,13 +467,24 @@ async function sendMessage() {
 
     addLoadingIndicator(modelType);
 
+    let optimizedPrompt = null;
+    if (window.__optimizer) {
+      updateLoadingText('正在优化提示词...');
+      optimizedPrompt = await window.__optimizer.optimize(message, modelType);
+    }
+
+    const basePrompt = optimizedPrompt || message;
+    const attachPrefix = attachments.length > 0
+      ? attachments.map(a => `[附件: ${a.name}]\n${a.content}`).join('\n\n') + '\n\n'
+      : '';
+    const usePrompt = attachPrefix + basePrompt;
     if (modelType === 'text') {
-      await handleTextStream(message);
+      await handleTextStream(usePrompt);
     } else {
-      let finalPrompt = message;
+      let finalPrompt = usePrompt;
       if (messages.some(m => m.type === 'text')) {
         updateLoadingText('正在理解上下文...');
-        finalPrompt = await contextualizePrompt(message, modelType);
+        finalPrompt = await contextualizePrompt(usePrompt, modelType);
         updateLoadingText(modelType === 'image' ? '生成图片中...' : '生成视频中...');
       }
       const response = await callApi(modelType, finalPrompt);
@@ -625,7 +645,7 @@ async function handleTextStream(prompt) {
   }
 }
 
-function addMessage(sender, content) {
+function addMessage(sender, content, attachments) {
   const chatMessages = document.getElementById('chatMessages');
   
   const welcomeMessage = document.querySelector('.welcome-message');
@@ -640,6 +660,18 @@ function addMessage(sender, content) {
   contentDiv.className = 'message-content';
   contentDiv.textContent = content;
 
+  if (attachments && attachments.length > 0) {
+    const attachDiv = document.createElement('div');
+    attachDiv.className = 'message-attachments';
+    for (const a of attachments) {
+      const chip = document.createElement('span');
+      chip.className = 'message-attach-chip';
+      chip.textContent = a.name;
+      attachDiv.appendChild(chip);
+    }
+    contentDiv.appendChild(attachDiv);
+  }
+
   const timeSpan = document.createElement('span');
   timeSpan.className = 'message-time';
   timeSpan.textContent = getCurrentTime();
@@ -648,7 +680,7 @@ function addMessage(sender, content) {
   messageDiv.appendChild(contentDiv);
   chatMessages.appendChild(messageDiv);
 
-  messages.push({ sender, content, time: new Date() });
+  messages.push({ sender, content, attachments, time: new Date() });
 }
 
 function addTextMessage(content) {
