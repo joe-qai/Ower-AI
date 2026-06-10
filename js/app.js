@@ -25,42 +25,73 @@ const CryptoUtils = {
   }
 };
 
-const SECRET_CONFIG = [
-  'OxEXAhZOZEoYQllaQTp3OzQLBgFIFSJLGl1dHUJp',
-  'IA5OBi8GDCIxR0Z1YS09bhYkE0oOAz8LK0BVelg6CBcbXRclCBUSFg4ESWpcaw8KGiQk',
-  'OxEXAhZOZEoYQllaQTp3OzQLBgFIFSJLGl1dHVU/Nz8gBBMbWgIiARxdb1tQZQ==',
-  ['fAYLExFbKAoUQlxXQDE2NCA=', 'MgINFxZZeUtJH1ZeVSsx'],
-  ['fAwOEwIROEoeV15XRjktMzwLEA==', 'MgINFxZZIggYVVUfBnZodzUJAgEN'],
-  ['fBMKFgAbOA==', 'MgINFxZZPQwdV18fQmp3ag==']
-];
+const RAW_CONFIG = {
+  base_url: 'https://apihub.agnes-ai.com/v1',
+  api_key: 'sk-tJrGGHuvGUud4EAp8kwtnRreHlbQMH8tWmaYsw6yXh3VPIAG',
+  video_poll_url: 'https://apihub.agnes-ai.com/agnesapi?video_id=',
+  text_endpoint: '/chat/completions',
+  text_model: 'agnes-2.0-flash',
+  image_endpoint: '/images/generations',
+  image_model: 'agnes-image-2.1-flash',
+  video_endpoint: '/videos',
+  video_model: 'agnes-video-v2.0'
+};
 
 const CONFIG = {
-  base_url: CryptoUtils.decrypt(SECRET_CONFIG[0].replace(/\s/g, '')),
-  api_key: CryptoUtils.decrypt(SECRET_CONFIG[1].replace(/\s/g, '')),
-  video_poll_url: CryptoUtils.decrypt(SECRET_CONFIG[2].replace(/\s/g, '')),
+  base_url: CryptoUtils.decrypt(CryptoUtils.encrypt(RAW_CONFIG.base_url)),
+  api_key: CryptoUtils.decrypt(CryptoUtils.encrypt(RAW_CONFIG.api_key)),
+  video_poll_url: CryptoUtils.decrypt(CryptoUtils.encrypt(RAW_CONFIG.video_poll_url)),
   models: {
     text: {
       name: 'Text Model',
-      endpoint: CryptoUtils.decrypt(SECRET_CONFIG[3][0].replace(/\s/g, '')),
-      model_name: CryptoUtils.decrypt(SECRET_CONFIG[3][1].replace(/\s/g, '')),
+      endpoint: CryptoUtils.decrypt(CryptoUtils.encrypt(RAW_CONFIG.text_endpoint)),
+      model_name: CryptoUtils.decrypt(CryptoUtils.encrypt(RAW_CONFIG.text_model)),
       description: '文本生成模型'
     },
     image: {
       name: 'Image Model',
-      endpoint: CryptoUtils.decrypt(SECRET_CONFIG[4][0].replace(/\s/g, '')),
-      model_name: CryptoUtils.decrypt(SECRET_CONFIG[4][1].replace(/\s/g, '')),
+      endpoint: CryptoUtils.decrypt(CryptoUtils.encrypt(RAW_CONFIG.image_endpoint)),
+      model_name: CryptoUtils.decrypt(CryptoUtils.encrypt(RAW_CONFIG.image_model)),
       description: '图像生成模型'
     },
     video: {
       name: 'Video Model',
-      endpoint: CryptoUtils.decrypt(SECRET_CONFIG[5][0].replace(/\s/g, '')),
-      model_name: CryptoUtils.decrypt(SECRET_CONFIG[5][1].replace(/\s/g, '')),
+      endpoint: CryptoUtils.decrypt(CryptoUtils.encrypt(RAW_CONFIG.video_endpoint)),
+      model_name: CryptoUtils.decrypt(CryptoUtils.encrypt(RAW_CONFIG.video_model)),
       description: '视频生成模型'
     }
   }
 };
 
 let messages = [];
+
+function isModelQuestion(prompt) {
+  const keywords = ['你好', '你是', '哪个', '模型', '大模型', '对话', 'AI', '名字', '什么', '谁',
+                   'who', 'name', 'what', 'your', 'are', 'you', 'hello', 'hi', 'identify', 'introduce'];
+  return keywords.some(keyword => prompt.toLowerCase().includes(keyword));
+}
+
+function detectModelType(prompt) {
+  if (isModelQuestion(prompt)) {
+    return 'system';
+  }
+  
+  const lowerPrompt = prompt.toLowerCase().trim();
+  
+  const videoKeywords = ['生成视频', '制作视频', '视频', 'video', 'mp4'];
+  const imageKeywords = ['生成图片', '制作图片', '画', '图片', 'image', 'photo', 'png', 'jpg'];
+  
+  const hasVideoKeyword = videoKeywords.some(keyword => lowerPrompt.includes(keyword));
+  const hasImageKeyword = imageKeywords.some(keyword => lowerPrompt.includes(keyword));
+  
+  if (hasVideoKeyword) {
+    return 'video';
+  } else if (hasImageKeyword) {
+    return 'image';
+  } else {
+    return 'text';
+  }
+}
 
 const MarkdownParser = {
   parse: function(text) {
@@ -110,7 +141,7 @@ function getModelConfig(modelType) {
   return models[modelType];
 }
 
-async function callApi(modelType, prompt, options = {}) {
+async function callApi(modelType, prompt) {
   const modelConfig = getModelConfig(modelType);
   const url = `${CONFIG.base_url}${modelConfig.endpoint}`;
   const apiKey = CONFIG.api_key;
@@ -128,16 +159,11 @@ async function callApi(modelType, prompt, options = {}) {
 
   switch (modelType) {
     case 'text':
-      const messages = [];
-      if (options.systemPrompt) {
-        messages.push({ role: 'system', content: options.systemPrompt });
-      }
-      messages.push({ role: 'user', content: prompt });
       body = {
         model: modelConfig.model_name,
-        messages: messages,
-        max_tokens: options.maxTokens || 2048,
-        temperature: options.temperature ?? 0.7
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 2048,
+        temperature: 0.7
       };
       break;
     case 'image':
@@ -152,27 +178,22 @@ async function callApi(modelType, prompt, options = {}) {
       body = {
         model: modelConfig.model_name,
         prompt: prompt,
-        duration: 180,
-        resolution: '4k'
+        height: 768,
+        width: 1152,
+        num_frames: 121,
+        frame_rate: 24
       };
       break;
     default:
       throw new Error(`不支持的模型类型: ${modelType}`);
   }
 
-  const controller = new AbortController();
-  const timeout = options.timeout || 60000;
-  const timer = setTimeout(() => controller.abort(), timeout);
-
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: headers,
-      body: JSON.stringify(body),
-      signal: controller.signal
+      body: JSON.stringify(body)
     });
-
-    clearTimeout(timer);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -191,34 +212,7 @@ async function callApi(modelType, prompt, options = {}) {
 
     return responseData;
   } catch (error) {
-    clearTimeout(timer);
     throw error;
-  }
-}
-
-const ROUTER_SYSTEM_PROMPT = `你是 Ower AI，一个智能AI助手，支持文本对话、图片生成和视频生成。
-
-工作规则：
-- 普通聊天、问答、写作等 → 直接用自然语言回复用户，保持友好有温度
-- 用户要求写提示词(prompt) → 正常回复，先写中文提示词，空行后写英文版
-- 用户要求生成/画图片 → 在回复开头加上【IMAGE】标记，后面跟上英文图片提示词
-- 用户要求生成视频 → 在回复开头加上【VIDEO】标记，后面跟上英文视频提示词
-- 如果不确定用户意图，正常对话即可，不要拒绝回答`;
-
-async function routeIntent(userMessage) {
-  const raw = await callApi('text', userMessage, {
-    systemPrompt: ROUTER_SYSTEM_PROMPT,
-    temperature: 0.7,
-    maxTokens: 1024
-  });
-  const content = parseResponse('text', raw);
-  
-  if (content.startsWith('【IMAGE】')) {
-    return { intent: 'image', prompt: content.replace('【IMAGE】', '').trim() };
-  } else if (content.startsWith('【VIDEO】')) {
-    return { intent: 'video', prompt: content.replace('【VIDEO】', '').trim() };
-  } else {
-    return { intent: 'text', response: content };
   }
 }
 
@@ -286,29 +280,13 @@ function generateFilename(type, extension) {
   return `${type}-${timestamp}.${extension}`;
 }
 
-async function downloadFromUrl(url, filename) {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('下载失败');
-    const blob = await response.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(blobUrl);
-  } catch (e) {
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
+function downloadFromUrl(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function init() {
@@ -337,6 +315,8 @@ async function sendMessage() {
 
   if (!message) return;
 
+  const modelType = detectModelType(message);
+
   addMessage('user', message);
   userInput.value = '';
   sendBtn.disabled = true;
@@ -344,42 +324,37 @@ async function sendMessage() {
   addLoadingIndicator();
 
   try {
-    const decision = await routeIntent(message);
-
-    if (!decision || !decision.intent) {
+    if (modelType === 'system') {
       removeLoadingIndicator();
-      addMessage('bot', '抱歉，我没有理解您的意思，请再描述一下？');
+      addTextMessage('我是海外仙踪，新加坡免费大模型，可以放心用哟。');
       sendBtn.disabled = false;
       scrollToBottom();
       return;
     }
 
-    const { intent } = decision;
+    const response = await callApi(modelType, message);
+    const result = parseResponse(modelType, response);
 
-    if (intent === 'image' || intent === 'video') {
-      const prompt = decision.prompt || message;
-      const response = await callApi(intent, prompt);
-      const result = parseResponse(intent, response);
+    removeLoadingIndicator();
 
-      removeLoadingIndicator();
-
+    if (modelType === 'text') {
+      addTextMessage(result);
+    } else if (modelType === 'image') {
       if (result) {
-        if (intent === 'image') addImageMessage(result);
-        else addVideoMessage(result);
+        addImageMessage(result);
       } else {
-        addMessage('bot', `未能生成${intent === 'image' ? '图片' : '视频'}`);
+        addMessage('bot', '未能生成图片');
       }
-    } else {
-      removeLoadingIndicator();
-      addTextMessage(decision.response || '...');
+    } else if (modelType === 'video') {
+      if (result) {
+        addVideoMessage(result);
+      } else {
+        addMessage('bot', '未能生成视频');
+      }
     }
   } catch (error) {
     removeLoadingIndicator();
-    if (error.name === 'AbortError') {
-      addMessage('bot', '大模型较忙，请稍后再试！');
-    } else {
-      showError(error.message);
-    }
+    showError(error.message);
   } finally {
     sendBtn.disabled = false;
     scrollToBottom();
@@ -439,38 +414,6 @@ function addTextMessage(content) {
   scrollToBottom();
 }
 
-function showImageLightbox(url) {
-  const existing = document.querySelector('.image-lightbox');
-  if (existing) existing.remove();
-
-  const overlay = document.createElement('div');
-  overlay.className = 'image-lightbox';
-
-  const container = document.createElement('div');
-  container.className = 'lightbox-container';
-
-  const img = document.createElement('img');
-  img.src = url;
-  img.alt = '预览';
-
-  const closeBtn = document.createElement('button');
-  closeBtn.className = 'lightbox-close';
-  closeBtn.innerHTML = '&times;';
-  closeBtn.onclick = () => overlay.remove();
-
-  overlay.onclick = (e) => {
-    if (e.target === overlay) overlay.remove();
-  };
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && overlay.parentNode) overlay.remove();
-  }, { once: true });
-
-  container.appendChild(img);
-  container.appendChild(closeBtn);
-  overlay.appendChild(container);
-  document.body.appendChild(overlay);
-}
-
 function addImageMessage(url) {
   const chatMessages = document.getElementById('chatMessages');
 
@@ -486,11 +429,9 @@ function addImageMessage(url) {
   contentDiv.className = 'message-content';
 
   const img = document.createElement('img');
-  img.className = 'thumbnail';
   img.src = url;
   img.alt = '生成的图片';
   img.onload = () => scrollToBottom();
-  img.onclick = () => showImageLightbox(url);
 
   const downloadBtn = document.createElement('button');
   downloadBtn.className = 'download-btn';
@@ -631,16 +572,19 @@ function clearMessages() {
   chatMessages.innerHTML = `
     <div class="welcome-message">
       <div class="welcome-icon">
-        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 15h-8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2z"></path>
-          <path d="M16 21h2a2 2 0 0 0 2-2v-4"></path>
-          <path d="M2 15h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2z"></path>
-          <path d="M8 21H6a2 2 0 0 1-2-2v-4"></path>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+          <path d="M2 17l10 5 10-5"></path>
+          <path d="M2 12l10 5 10-5"></path>
         </svg>
       </div>
-      <h2>欢迎使用智能助手</h2>
-      <p>输入您的需求，系统会自动处理</p>
-      <p class="hint">提示：输入"生成图片..."或"生成视频..."来创建媒体内容</p>
+      <h2>Welcome to NEXUS</h2>
+      <p>Your intelligent AI assistant is ready to help</p>
+      <div class="welcome-hint">
+        <span class="hint-chip">Text Generation</span>
+        <span class="hint-chip">Image Creation</span>
+        <span class="hint-chip">Video Synthesis</span>
+      </div>
     </div>
   `;
   messages = [];
@@ -656,6 +600,10 @@ function scrollToBottom() {
   setTimeout(() => {
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }, 100);
+}
+
+function clearInput() {
+  document.getElementById('userInput').value = '';
 }
 
 document.addEventListener('DOMContentLoaded', init);
