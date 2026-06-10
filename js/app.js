@@ -71,6 +71,31 @@ function isModelQuestion(prompt) {
   return keywords.some(keyword => prompt.toLowerCase().includes(keyword));
 }
 
+function isAbstractPrompt(prompt, modelType) {
+  if (modelType !== 'image' && modelType !== 'video') {
+    return false;
+  }
+  
+  const abstractKeywords = [
+    '漂亮', '好看', '美丽', '帅气', '可爱', '酷', '优雅', '时尚',
+    'beautiful', 'pretty', 'nice', 'cool', 'cute', 'elegant', 'fashion',
+    '随便', '都行', '都可以', '差不多', '类似',
+    'something', 'anything', 'whatever', 'similar'
+  ];
+  
+  const concreteKeywords = [
+    '颜色', '尺寸', '风格', '场景', '人物', '地点', '时间',
+    '颜色', '大小', '形状', '材质', '背景', '表情', '动作',
+    'color', 'size', 'style', 'scene', 'person', 'place', 'background'
+  ];
+  
+  const lowerPrompt = prompt.toLowerCase().trim();
+  const hasAbstract = abstractKeywords.some(k => lowerPrompt.includes(k));
+  const hasConcrete = concreteKeywords.some(k => lowerPrompt.includes(k));
+  
+  return hasAbstract && !hasConcrete;
+}
+
 function detectModelType(prompt) {
   if (isModelQuestion(prompt)) {
     return 'system';
@@ -133,6 +158,50 @@ const MarkdownParser = {
   }
 };
 
+function buildHistory() {
+  const history = [];
+  for (const msg of messages) {
+    if (msg.sender === 'user') {
+      history.push({ role: 'user', content: msg.content });
+    } else if (msg.sender === 'bot' && msg.type === 'text') {
+      history.push({ role: 'assistant', content: msg.content });
+    }
+  }
+  return history;
+}
+
+async function contextualizePrompt(prompt, modelType) {
+  const hasContext = messages.some(m => m.type === 'text');
+  if (!hasContext) return prompt;
+
+  const typeName = modelType === 'image' ? '图片' : '视频';
+  const modelConfig = getModelConfig('text');
+  const url = `${CONFIG.base_url}${modelConfig.endpoint}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${CONFIG.api_key}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: modelConfig.model_name,
+      messages: [
+        { role: 'system', content: `你是一个提示词优化器。根据对话历史，把用户的${typeName}生成请求扩展为详细、适合AI${typeName}模型的英文提示词。只返回提示词本身。` },
+        ...buildHistory(),
+        { role: 'user', content: `根据对话历史优化这个${typeName}提示词：${prompt}` }
+      ],
+      max_tokens: 500,
+      temperature: 0.7,
+      stream: false
+    })
+  });
+
+  if (!response.ok) return prompt;
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content?.trim() || prompt;
+}
+
 function getModelConfig(modelType) {
   const models = CONFIG.models;
   if (!models[modelType]) {
@@ -141,7 +210,7 @@ function getModelConfig(modelType) {
   return models[modelType];
 }
 
-async function callApi(modelType, prompt) {
+async function callApi(modelType, prompt, callback = null) {
   const modelConfig = getModelConfig(modelType);
   const url = `${CONFIG.base_url}${modelConfig.endpoint}`;
   const apiKey = CONFIG.api_key;
@@ -161,9 +230,13 @@ async function callApi(modelType, prompt) {
     case 'text':
       body = {
         model: modelConfig.model_name,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          ...buildHistory(),
+          { role: 'user', content: prompt }
+        ],
         max_tokens: 2048,
-        temperature: 0.7
+        temperature: 0.7,
+        stream: callback !== null
       };
       break;
     case 'image':
@@ -200,6 +273,10 @@ async function callApi(modelType, prompt) {
       throw new Error(`API请求失败: ${response.status} - ${errorText}`);
     }
 
+    if (modelType === 'text' && callback !== null) {
+      return await handleStreamResponse(response, callback);
+    }
+
     const responseData = await response.json();
     
     if (modelType === 'video') {
@@ -214,6 +291,48 @@ async function callApi(modelType, prompt) {
   } catch (error) {
     throw error;
   }
+}
+
+async function handleStreamResponse(response, callback) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  
+  let fullContent = '';
+  
+  while (true) {
+    const { done, value } = await reader.read();
+    
+    if (done) {
+      break;
+    }
+    
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split('\n');
+    
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6);
+        
+        if (data === '[DONE]') {
+          return fullContent;
+        }
+        
+        try {
+          const json = JSON.parse(data);
+          const content = json.choices?.[0]?.delta?.content;
+          
+          if (content) {
+            fullContent += content;
+            callback(content);
+          }
+        } catch (e) {
+          console.log('解析流式数据失败:', e);
+        }
+      }
+    }
+  }
+  
+  return fullContent;
 }
 
 async function pollVideoStatus(videoId) {
@@ -321,35 +440,50 @@ async function sendMessage() {
   userInput.value = '';
   sendBtn.disabled = true;
 
-  addLoadingIndicator();
-
   try {
     if (modelType === 'system') {
-      removeLoadingIndicator();
       addTextMessage('我是海外仙踪，新加坡免费大模型，可以放心用哟。');
       sendBtn.disabled = false;
       scrollToBottom();
       return;
     }
 
-    const response = await callApi(modelType, message);
-    const result = parseResponse(modelType, response);
+    if (isAbstractPrompt(message, modelType)) {
+      const confirm = await confirmAbstractPrompt(message, modelType);
+      if (!confirm) {
+        sendBtn.disabled = false;
+        return;
+      }
+    }
 
-    removeLoadingIndicator();
+    addLoadingIndicator(modelType);
 
     if (modelType === 'text') {
-      addTextMessage(result);
-    } else if (modelType === 'image') {
-      if (result) {
-        addImageMessage(result);
-      } else {
-        addMessage('bot', '未能生成图片');
+      await handleTextStream(message);
+    } else {
+      let finalPrompt = message;
+      if (messages.some(m => m.type === 'text')) {
+        updateLoadingText('正在理解上下文...');
+        finalPrompt = await contextualizePrompt(message, modelType);
+        updateLoadingText(modelType === 'image' ? '生成图片中...' : '生成视频中...');
       }
-    } else if (modelType === 'video') {
-      if (result) {
-        addVideoMessage(result);
-      } else {
-        addMessage('bot', '未能生成视频');
+      const response = await callApi(modelType, finalPrompt);
+      const result = parseResponse(modelType, response);
+      
+      removeLoadingIndicator();
+      
+      if (modelType === 'image') {
+        if (result) {
+          addImageMessage(result);
+        } else {
+          addMessage('bot', '未能生成图片');
+        }
+      } else if (modelType === 'video') {
+        if (result) {
+          addVideoMessage(result);
+        } else {
+          addMessage('bot', '未能生成视频');
+        }
       }
     }
   } catch (error) {
@@ -358,6 +492,136 @@ async function sendMessage() {
   } finally {
     sendBtn.disabled = false;
     scrollToBottom();
+  }
+}
+
+async function confirmAbstractPrompt(message, modelType) {
+  return new Promise((resolve) => {
+    const chatMessages = document.getElementById('chatMessages');
+    
+    const welcomeMessage = document.querySelector('.welcome-message');
+    if (welcomeMessage) {
+      welcomeMessage.remove();
+    }
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message bot';
+    messageDiv.id = 'abstractPromptMessage';
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    
+    const typeText = modelType === 'image' ? '图片' : '视频';
+    contentDiv.innerHTML = `
+      <p>我注意到你的${typeText}生成请求比较抽象呢~ 为了更好地帮你生成，我想了解更多细节：</p>
+      <p style="margin-top: 8px; font-size: 13px; color: var(--text-secondary);">
+        你可以告诉我更多关于：<br>
+        • 颜色偏好（比如：蓝色、温暖色调、复古风格）<br>
+        • 场景描述（比如：森林、城市夜景、海边日落）<br>
+        • 风格要求（比如：写实、卡通、油画、赛博朋克）
+      </p>
+      <div style="margin-top: 12px; display: flex; gap: 8px;">
+        <button 
+          onclick="handleAbstractConfirm(true)" 
+          style="padding: 8px 16px; background: var(--primary-500); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px;"
+        >
+          补充说明
+        </button>
+        <button 
+          onclick="handleAbstractConfirm(false)" 
+          style="padding: 8px 16px; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; font-size: 13px;"
+        >
+          就这样生成
+        </button>
+      </div>
+    `;
+
+    messageDiv.appendChild(contentDiv);
+    chatMessages.appendChild(messageDiv);
+    scrollToBottom();
+
+    window.handleAbstractConfirm = function(confirmed) {
+      const msg = document.getElementById('abstractPromptMessage');
+      if (msg) msg.remove();
+      resolve(confirmed);
+    };
+  });
+}
+
+async function handleTextStream(prompt) {
+  const chatMessages = document.getElementById('chatMessages');
+
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'message bot';
+  messageDiv.id = 'streamingMessage';
+
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'message-content';
+
+  const textContainer = document.createElement('div');
+  textContainer.className = 'streaming-text';
+
+  contentDiv.appendChild(textContainer);
+  messageDiv.appendChild(contentDiv);
+
+  let fullContent = '';
+  let displayedLen = 0;
+  let charQueue = [];
+  let isTyping = false;
+
+  function typewrite() {
+    if (charQueue.length === 0) {
+      isTyping = false;
+      return;
+    }
+    isTyping = true;
+    const ch = charQueue.shift();
+    displayedLen++;
+    textContainer.innerHTML = MarkdownParser.parse(fullContent.slice(0, displayedLen));
+    scrollToBottom();
+    const delay = ch === '\n' ? 80 : 20;
+    setTimeout(typewrite, delay);
+  }
+
+  const callback = (chunk) => {
+    if (messageDiv.parentNode !== chatMessages) {
+      removeLoadingIndicator();
+      chatMessages.appendChild(messageDiv);
+      scrollToBottom();
+    }
+
+    fullContent += chunk;
+    for (const ch of chunk) {
+      charQueue.push(ch);
+    }
+    if (!isTyping) {
+      typewrite();
+    }
+  };
+
+  try {
+    await callApi('text', prompt, callback);
+  } finally {
+    if (messageDiv.parentNode !== chatMessages) {
+      removeLoadingIndicator();
+      chatMessages.appendChild(messageDiv);
+    }
+    textContainer.innerHTML = MarkdownParser.parse(fullContent);
+    displayedLen = fullContent.length;
+    charQueue = [];
+    isTyping = false;
+
+    const streamingMsg = document.getElementById('streamingMessage');
+    if (streamingMsg) {
+      streamingMsg.id = '';
+    }
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'message-time';
+    timeSpan.textContent = getCurrentTime();
+    contentDiv.appendChild(timeSpan);
+
+    messages.push({ sender: 'bot', content: fullContent, type: 'text', time: new Date() });
   }
 }
 
@@ -431,7 +695,9 @@ function addImageMessage(url) {
   const img = document.createElement('img');
   img.src = url;
   img.alt = '生成的图片';
+  img.style.cursor = 'pointer';
   img.onload = () => scrollToBottom();
+  img.onclick = (e) => { e.stopPropagation(); openPreview('image', url); };
 
   const downloadBtn = document.createElement('button');
   downloadBtn.className = 'download-btn';
@@ -479,7 +745,9 @@ function addVideoMessage(url) {
   video.src = url;
   video.controls = true;
   video.style.maxWidth = '100%';
+  video.style.cursor = 'pointer';
   video.onloadeddata = () => scrollToBottom();
+  video.onclick = (e) => { e.stopPropagation(); openPreview('video', url); };
 
   const downloadBtn = document.createElement('button');
   downloadBtn.className = 'download-btn';
@@ -509,7 +777,7 @@ function addVideoMessage(url) {
   scrollToBottom();
 }
 
-function addLoadingIndicator() {
+function addLoadingIndicator(modelType = 'text') {
   const chatMessages = document.getElementById('chatMessages');
 
   const welcomeMessage = document.querySelector('.welcome-message');
@@ -524,15 +792,16 @@ function addLoadingIndicator() {
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content';
 
-  const loadingDiv = document.createElement('div');
-  loadingDiv.className = 'loading-indicator';
+  const loadingText = modelType === 'text' 
+    ? '思考中...' 
+    : (modelType === 'image' ? '生成中...' : '生成中...');
   
-  for (let i = 0; i < 3; i++) {
-    const span = document.createElement('span');
-    loadingDiv.appendChild(span);
-  }
+  contentDiv.innerHTML = `<div class="typing-indicator">
+    <span></span>
+    <span></span>
+    <span></span>
+  </div><div class="loading-text" style="margin-top: 8px; font-size: 13px; color: var(--text-muted);">${loadingText}</div>`;
 
-  contentDiv.appendChild(loadingDiv);
   messageDiv.appendChild(contentDiv);
   chatMessages.appendChild(messageDiv);
 
@@ -545,6 +814,40 @@ function removeLoadingIndicator() {
     loadingMessage.remove();
   }
 }
+
+function updateLoadingText(text) {
+  const el = document.querySelector('#loadingMessage .loading-text');
+  if (el) el.textContent = text;
+}
+
+function openPreview(type, src) {
+  const overlay = document.getElementById('previewOverlay');
+  const imgEl = document.getElementById('previewImage');
+  const videoEl = document.getElementById('previewVideo');
+  imgEl.style.display = 'none';
+  videoEl.style.display = 'none';
+  if (type === 'image') {
+    imgEl.src = src;
+    imgEl.style.display = 'block';
+  } else {
+    videoEl.src = src;
+    videoEl.style.display = 'block';
+  }
+  overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function closePreview() {
+  const overlay = document.getElementById('previewOverlay');
+  const videoEl = document.getElementById('previewVideo');
+  overlay.classList.remove('active');
+  videoEl.pause();
+  document.body.style.overflow = '';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closePreview();
+});
 
 function showError(message) {
   const chatMessages = document.getElementById('chatMessages');
