@@ -66,10 +66,22 @@ body {
 
 .app-container {
   display: flex;
+  justify-content: center;
   width: 100%;
   height: 100vh;
   position: relative;
   overflow: hidden;
+}
+
+.app-layout {
+  display: flex;
+  width: 100%;
+  max-width: 1140px;
+  height: 100vh;
+  position: relative;
+  z-index: 1;
+  padding: 24px;
+  gap: 0;
 }
 
 .app-container::before {
@@ -101,12 +113,9 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  max-width: 850px;
-  width: 100%;
-  margin: 0 auto;
+  min-width: 0;
   position: relative;
   z-index: 1;
-  padding: 24px;
 }
 
 .chat-container {
@@ -116,8 +125,9 @@ body {
   background: var(--bg-card);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border-radius: var(--radius-xl);
+  border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
   border: 1px solid rgba(255, 255, 255, 0.6);
+  border-left: none;
   overflow: hidden;
   box-shadow: 
     var(--shadow-lg),
@@ -718,9 +728,163 @@ body {
   background: rgba(14, 165, 233, 0.08);
 }
 
+.sidebar {
+  width: 240px;
+  background: var(--bg-card);
+  backdrop-filter: blur(24px);
+  border-right: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform var(--transition-slow), opacity var(--transition-slow);
+  z-index: 100;
+  position: relative;
+  flex-shrink: 0;
+  border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+}
+
+.sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.new-chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, var(--accent-400), var(--accent-500));
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+
+.new-chat-btn:hover {
+  box-shadow: 0 4px 16px rgba(14, 165, 233, 0.3);
+  transform: translateY(-1px);
+}
+
+.conv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.conv-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.conv-list::-webkit-scrollbar-thumb {
+  background: var(--accent-200);
+  border-radius: 2px;
+}
+
+.conv-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: 2px;
+}
+
+.conv-item:hover {
+  background: var(--accent-50);
+}
+
+.conv-item.active {
+  background: var(--accent-100);
+  border: 1px solid var(--accent-200);
+}
+
+.conv-title {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.conv-del {
+  font-size: 16px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px;
+}
+
+.conv-item:hover .conv-del {
+  opacity: 1;
+}
+
+.conv-del:hover {
+  color: #ef4444;
+}
+
+.sidebar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  border-radius: 50%;
+  transition: all var(--transition-fast);
+  margin-right: 8px;
+}
+
+.sidebar-toggle:hover {
+  color: var(--accent-500);
+  background: rgba(14, 165, 233, 0.08);
+}
+
 @media (max-width: 768px) {
-  .main-content { padding: 16px; }
-  .chat-container { border-radius: var(--radius-lg); }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    opacity: 0;
+    box-shadow: var(--shadow-lg);
+    border-radius: 0;
+    z-index: 200;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  .sidebar-toggle {
+    display: flex;
+  }
+
+  .app-layout {
+    padding: 0;
+  }
+
+  .chat-container {
+    border-radius: 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.6);
+  }
+}
+
+@media (max-width: 768px) {
   .chat-header { padding: 16px 18px; }
   .ai-icon { width: 40px; height: 40px; font-size: 18px; }
   .brand-name h1 { font-size: 16px; }
@@ -735,8 +899,8 @@ body {
 }
 
 @media (max-width: 480px) {
+  .app-layout { padding: 0; }
   .chat-container { border-radius: 0; }
-  .main-content { padding: 0; }
   .message-content { max-width: 92%; }
   .message-content img { max-width: 130px; max-height: 130px; }
 }

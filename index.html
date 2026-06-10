@@ -18,8 +18,18 @@
       <div class="particle"></div>
       <div class="particle"></div>
     </div>
-    <main class="main-content">
-      <div class="chat-container">
+    <div class="app-layout">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <button class="new-chat-btn" onclick="window.__convActions?.create()">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+            新建对话
+          </button>
+        </div>
+        <div class="conv-list" id="convList"></div>
+      </aside>
+      <main class="main-content">
+        <div class="chat-container">
         <header class="chat-header">
           <div class="header-left">
             <div class="ai-icon">
@@ -35,6 +45,9 @@
             </div>
           </div>
           <div class="header-right">
+            <button class="sidebar-toggle" id="sidebarToggle" onclick="document.getElementById('sidebar').classList.toggle('open')">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"></path></svg>
+            </button>
             <div class="connection-status">
               <span class="status-dot"></span>
               <span class="status-text">Online</span>
@@ -82,8 +95,9 @@
             </button>
           </div>
         </footer>
-      </div>
-    </main>
+        </div>
+      </main>
+    </div>
   </div>
 
   <div class="preview-overlay" id="previewOverlay" onclick="closePreview()">

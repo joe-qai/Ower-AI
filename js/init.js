@@ -330,3 +330,175 @@
     },
   };
 })();
+
+(function () {
+  'use strict';
+
+  var STORAGE_KEY_CONVERSATIONS = 'ower_conversations';
+  var STORAGE_KEY_CURRENT = 'ower_current';
+  var MSG_PREFIX = 'ower_msg_';
+
+  function genId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+
+  function loadJSON(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  class ConversationStore {
+    constructor() {
+      this._conversations = loadJSON(STORAGE_KEY_CONVERSATIONS, []);
+      this._currentId = loadJSON(STORAGE_KEY_CURRENT, null);
+      if (this._conversations.length === 0) {
+        this._createInternal('新对话');
+      }
+    }
+
+    createConversation() {
+      return this._createInternal('新对话');
+    }
+
+    _createInternal(title) {
+      var id = genId();
+      var now = Date.now();
+      var conv = { id: id, title: title, created: now, updated: now };
+      this._conversations.push(conv);
+      this._currentId = id;
+      this._saveMeta();
+      this._saveMessages(id, []);
+      return { id: id, title: title, messages: [] };
+    }
+
+    getCurrent() {
+      var conv = this._conversations.find(function (c) { return c.id === this._currentId; }.bind(this));
+      if (!conv) return null;
+      var messages = this._loadMessages(conv.id);
+      return { id: conv.id, title: conv.title, created: conv.created, updated: conv.updated, messages: messages };
+    }
+
+    getCurrentId() {
+      return this._currentId;
+    }
+
+    getAll() {
+      return this._conversations.slice().sort(function (a, b) { return b.updated - a.updated; });
+    }
+
+    switchConversation(id) {
+      if (this._conversations.some(function (c) { return c.id === id; })) {
+        this._currentId = id;
+        this._saveMeta();
+      }
+    }
+
+    deleteConversation(id) {
+      var idx = this._conversations.findIndex(function (c) { return c.id === id; });
+      if (idx === -1) return;
+      this._conversations.splice(idx, 1);
+      localStorage.removeItem(MSG_PREFIX + id);
+      if (this._currentId === id) {
+        this._currentId = this._conversations.length > 0
+          ? this._conversations[this._conversations.length - 1].id
+          : null;
+      }
+      if (this._conversations.length === 0) {
+        this._createInternal('新对话');
+      }
+      this._saveMeta();
+    }
+
+    renameConversation(id, title) {
+      var conv = this._conversations.find(function (c) { return c.id === id; });
+      if (conv) {
+        conv.title = title;
+        this._saveMeta();
+      }
+    }
+
+    addMessage(msg) {
+      var conv = this._conversations.find(function (c) { return c.id === this._currentId; }.bind(this));
+      if (!conv) return;
+      var messages = this._loadMessages(conv.id);
+      messages.push({
+        sender: msg.sender,
+        content: msg.content,
+        type: msg.type || 'text',
+        attachments: msg.attachments || null,
+        time: msg.time instanceof Date ? msg.time.toISOString() : (msg.time || new Date().toISOString()),
+      });
+      conv.updated = Date.now();
+      if (messages.length === 1 && msg.sender === 'user') {
+        conv.title = msg.content.slice(0, 50);
+      }
+      this._saveMeta();
+      this._saveMessages(conv.id, messages);
+    }
+
+    clearCurrent() {
+      var conv = this._conversations.find(function (c) { return c.id === this._currentId; }.bind(this));
+      if (conv) {
+        this._saveMessages(conv.id, []);
+        conv.updated = Date.now();
+        this._saveMeta();
+      }
+    }
+
+    _loadMessages(id) {
+      return loadJSON(MSG_PREFIX + id, []);
+    }
+
+    _saveMessages(id, messages) {
+      localStorage.setItem(MSG_PREFIX + id, JSON.stringify(messages));
+    }
+
+    _saveMeta() {
+      localStorage.setItem(STORAGE_KEY_CONVERSATIONS, JSON.stringify(this._conversations));
+      localStorage.setItem(STORAGE_KEY_CURRENT, JSON.stringify(this._currentId));
+    }
+  }
+
+  var convStore = new ConversationStore();
+  window.__convStore = convStore;
+
+  window.__convActions = {
+    create: function () {
+      convStore.createConversation();
+      if (typeof window.loadConversationMessages === 'function') {
+        window.loadConversationMessages();
+      }
+      if (typeof window.renderConversationList === 'function') {
+        window.renderConversationList();
+      }
+    },
+    switchTo: function (id) {
+      convStore.switchConversation(id);
+      if (typeof window.loadConversationMessages === 'function') {
+        window.loadConversationMessages();
+      }
+      if (typeof window.renderConversationList === 'function') {
+        window.renderConversationList();
+      }
+    },
+    remove: function (id) {
+      convStore.deleteConversation(id);
+      if (typeof window.loadConversationMessages === 'function') {
+        window.loadConversationMessages();
+      }
+      if (typeof window.renderConversationList === 'function') {
+        window.renderConversationList();
+      }
+    },
+    rename: function (id, title) {
+      convStore.renameConversation(id, title);
+      if (typeof window.renderConversationList === 'function') {
+        window.renderConversationList();
+      }
+    },
+  };
+})();
