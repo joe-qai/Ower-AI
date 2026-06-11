@@ -1,0 +1,119 @@
+Agnes-2.0-Flash
+Agnes-2.0-Flash 是由 Sapiens AI 开发的一款快速、高效的语言模型，面向智能体工作流、工具调用、编程任务、推理、多轮对话、图片理解以及高频生产环境应用场景设计。
+Agnes-2.0-Flash 在 Claw-Eval 基准测试中取得了强劲表现，在 General Leaderboard 中排名第 9，Pass^3 分数为 60.9%，展现出在主流语言模型中较强的自主智能体能力。
+模型概述
+Agnes-2.0-Flash 针对快速、可靠、低成本的语言生成、智能体任务执行和图片理解进行了优化。
+该模型支持以下能力：
+能力
+说明
+Chat Completion
+为对话和应用生成高质量回复
+多轮对话
+在多轮交互中保持上下文连续性
+图片 URL 输入
+支持通过公网图片 URL 传入图片内容
+图片理解
+支持基于图片的内容理解、截图分析和信息提取
+工具调用
+调用外部工具和函数，支持智能体工作流
+智能体工作流
+支持规划、执行和多步骤任务完成
+编程任务
+辅助代码生成、调试、解释和重构
+推理
+处理结构化推理、任务拆解和决策
+流式输出
+实时返回响应，提升用户体验
+OpenAI 兼容 API
+使用兼容 OpenAI Chat Completions API 的结构
+适用场景
+Agnes-2.0-Flash 适用于以下场景：
+场景
+示例用例
+AI 助手
+通用问答、日常助手、效率支持
+自主智能体
+多步骤任务执行、规划和工具使用
+编程助手
+代码生成、调试、重构和解释
+工作流自动化
+任务拆解、流程自动化和执行规划
+客户支持
+FAQ 问答、客服聊天机器人、服务自动化
+搜索与问答
+基于搜索的回答、摘要生成、信息提取
+内容生成
+营销文案、文章、产品描述、脚本
+开发者工具
+API 助手、文档助手、编程 Copilot
+AI 原生应用
+消费级应用、效率工具、智能体应用
+图片理解
+图片描述、截图分析、视觉问答、信息提取
+API 信息
+Endpoint
+项目
+说明
+API Endpoint
+ `https://apihub.agnes-ai.com/v1/chat/completions` 
+Request Method
+POST
+Content-Type
+application/json
+Authentication
+Bearer Token
+Authentication Header
+Authorization: Bearer YOUR_API_KEY
+请求参数
+参数
+类型
+是否必填
+说明
+model
+string
+是
+模型名称，固定为 agnes-2.0-flash
+messages
+array
+是
+对话消息数组，包括 system、user 和 assistant 消息
+messages[].content
+string / array
+是
+消息内容。可为纯文本字符串，也可为包含 text、image_url 的内容数组
+temperature
+number
+否
+控制输出随机性。较低值会生成更确定性的结果
+top_p
+number
+否
+控制核采样。较低值会使输出更加聚焦
+max_tokens
+number
+否
+响应中最多生成的 token 数
+stream
+boolean
+否
+是否启用流式响应输出
+tools
+array
+否
+用于工具调用工作流的工具定义
+tool_choice
+string / object
+否
+控制模型是否以及如何使用工具
+chat_template_kwargs
+object
+否
+OpenAI 兼容请求中用于开启 Thinking 等扩展能力
+thinking
+object
+否
+Anthropic 兼容请求中用于开启 Thinking 模式
+
+
+
+上传的图片如何做图片理解？

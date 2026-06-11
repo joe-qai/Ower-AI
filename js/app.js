@@ -795,7 +795,15 @@ function addMessage(sender, content, attachments) {
 
   var msg = { sender: sender, content: content, attachments: attachments, time: new Date() };
   messages.push(msg);
-  if (window.__convStore) window.__convStore.addMessage(msg);
+  if (window.__convStore) {
+    var storeMsg = { sender: sender, content: content, type: 'text', time: msg.time };
+    if (attachments && attachments.length > 0) {
+      storeMsg.attachments = attachments.map(function (a) {
+        return a.type === 'image' ? { name: a.name, type: a.type } : a;
+      });
+    }
+    window.__convStore.addMessage(storeMsg);
+  }
 }
 
 function addTextMessage(content) {

@@ -4,11 +4,17 @@
   const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
   const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  var MAX_IMAGE_FILE_SIZE = 20 * 1024 * 1024;
+  var MAX_IMAGE_DIMENSION = 2048;
+  var COMPRESS_QUALITY = 0.8;
 
   class AttachmentHandler {
     async readFile(file) {
       if (IMAGE_TYPES.includes(file.type)) {
-        const content = await this._readAsDataURL(file);
+        if (file.size > MAX_IMAGE_FILE_SIZE) {
+          throw new Error('图片过大: ' + file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + 'MB)，最大支持 ' + MAX_IMAGE_FILE_SIZE / 1024 / 1024 + 'MB');
+        }
+        const content = await this._compressImage(file);
         return { type: 'image', content };
       }
       if (file.type === DOCX_TYPE && window.mammoth) {
@@ -45,11 +51,52 @@
       });
     }
 
+    async _compressImage(file) {
+      var dataUrl = await this._readAsDataURL(file);
+      if (file.size < 1024 * 1024) {
+        var img = new Image();
+        await new Promise(function (resolve, reject) {
+          img.onload = resolve;
+          img.onerror = function () { reject(new Error('Failed to decode image: ' + file.name)); };
+          img.src = dataUrl;
+        });
+        if (img.width <= MAX_IMAGE_DIMENSION && img.height <= MAX_IMAGE_DIMENSION) {
+          return dataUrl;
+        }
+      }
+      return this._downsample(dataUrl, file.name);
+    }
+
+    _downsample(dataUrl, fileName) {
+      return new Promise(function (resolve, reject) {
+        var img = new Image();
+        img.onload = function () {
+          var width = img.width, height = img.height;
+          if (width > MAX_IMAGE_DIMENSION) {
+            height = Math.round(height * MAX_IMAGE_DIMENSION / width);
+            width = MAX_IMAGE_DIMENSION;
+          }
+          if (height > MAX_IMAGE_DIMENSION) {
+            width = Math.round(width * MAX_IMAGE_DIMENSION / height);
+            height = MAX_IMAGE_DIMENSION;
+          }
+          var canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', COMPRESS_QUALITY));
+        };
+        img.onerror = function () { reject(new Error('Failed to decode image: ' + fileName)); };
+        img.src = dataUrl;
+      });
+    }
+
     _readAsDataURL(file) {
       return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Failed to read file: ' + file.name));
+        var reader = new FileReader();
+        reader.onload = function () { resolve(reader.result); };
+        reader.onerror = function () { reject(new Error('Failed to read file: ' + file.name)); };
         reader.readAsDataURL(file);
       });
     }
@@ -72,11 +119,17 @@
     }
 
     async addFile(file) {
-      const result = await this._handler.readFile(file);
-      const entry = { name: file.name, ...result };
-      this._files.push(entry);
-      this._renderAll();
-      return entry;
+      try {
+        const result = await this._handler.readFile(file);
+        const entry = { name: file.name, ...result };
+        this._files.push(entry);
+        this._renderAll();
+        return entry;
+      } catch (err) {
+        var showError = window.showError || console.error;
+        showError(err.message);
+        throw err;
+      }
     }
 
     removeFile(index) {
@@ -311,7 +364,11 @@
 
     fileInput.addEventListener('change', async function () {
       for (var i = 0; i < fileInput.files.length; i++) {
-        await controller.addFile(fileInput.files[i]);
+        try {
+          await controller.addFile(fileInput.files[i]);
+        } catch (err) {
+          console.error('Failed to add file:', err);
+        }
       }
       fileInput.value = '';
     });
@@ -325,7 +382,7 @@
 
   window.__optimizer = {
     optimize: async function (input, modelType) {
-      var attachments = controller.getAttachments();
+      var attachments = controller.getAttachments().filter(function (a) { return a.type !== 'image'; });
       return optimizer.optimizePrompt(input, attachments, modelType, window.callApi, window.parseResponse);
     },
   };

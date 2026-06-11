@@ -1,7 +1,8 @@
 export class PromptBuilder {
   buildOptimizationPrompt(userInput, attachments, skillDoc, modelType) {
-    const attachText = attachments.length > 0
-      ? attachments.map(a => `[${a.name}]\n${a.content}`).join('\n\n')
+    const textOnly = attachments.filter(a => a.type !== 'image');
+    const attachText = textOnly.length > 0
+      ? textOnly.map(a => `[${a.name}]\n${a.content}`).join('\n\n')
       : '';
 
     const lines = [

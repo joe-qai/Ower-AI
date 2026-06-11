@@ -8,11 +8,17 @@ export class AttachmentController {
   }
 
   async addFile(file) {
-    const result = await this._handler.readFile(file);
-    const entry = { name: file.name, ...result };
-    this._files.push(entry);
-    this._renderChip(entry, this._files.length - 1);
-    return entry;
+    try {
+      const result = await this._handler.readFile(file);
+      const entry = { name: file.name, ...result };
+      this._files.push(entry);
+      this._renderChip(entry, this._files.length - 1);
+      return entry;
+    } catch (err) {
+      const showError = window.showError || console.error;
+      showError(err.message);
+      throw err;
+    }
   }
 
   removeFile(index) {

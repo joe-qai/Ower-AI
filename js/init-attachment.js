@@ -12,7 +12,11 @@ attachBtn.addEventListener('click', () => {
 
 fileInput.addEventListener('change', async () => {
   for (const file of fileInput.files) {
-    await controller.addFile(file);
+    try {
+      await controller.addFile(file);
+    } catch (err) {
+      console.error('Failed to add file:', err);
+    }
   }
   fileInput.value = '';
 });
@@ -25,7 +29,7 @@ window.__attachments = {
 
 window.__optimizer = {
   optimize: async (input, modelType) => {
-    const attachments = controller.getAttachments();
+    const attachments = controller.getAttachments().filter(a => a.type !== 'image');
     return optimizer.optimizePrompt(input, attachments, modelType, window.callApi, window.parseResponse);
   },
 };
